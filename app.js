@@ -5,6 +5,9 @@ const Listing = require("./models/listing.js");
 const path = require("path");
 const methodOverride = require("method-override");
 const ejsMate = require("ejs-mate");
+const WrapAsync = require("./utils/WrapAsync.js");
+const ExpressError = require("./utils/ExpressError.js");
+const {listingSchema} = require("./schema.js")
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -26,6 +29,17 @@ async function main(){
     await mongoose.connect(MONGO_URL);
 };
 
+const validateListing = (req,res,next) => {
+    console.log(req.body);
+    let {error} = listingSchema.validate(req.body);
+    if(error){
+        let errMsg = error.details.map((el) => el.message).join(",");
+        throw new ExpressError(400 , errMsg);
+    }else{
+        next();
+    }
+}
+
 app.get("/", (req,res) => {
     res.send("Welcome ! Find the best house for your stay.")
 
@@ -46,6 +60,7 @@ app.get("/listings/:id" , async (req,res) => {
 
 });
 
+
 app.get("/listings/:id/edit" , async (req,res) => {
     let {id} = req.params;
     const listing = await Listing.findById(id);
@@ -53,23 +68,34 @@ app.get("/listings/:id/edit" , async (req,res) => {
 
 });
 
-app.put("/listings/:id" , async(req,res) => {
+// Update
+app.put("/listings/:id" ,validateListing, WrapAsync(async(req,res) => {
     let {id} = req.params;
     await Listing.findByIdAndUpdate(id , {...req.body.listing});
     res.redirect(`/listings/${id}`);
-});
+}));
 
-app.post("/listings/new" , async(req,res) => {
-    console.log(req.body);
+// Create 
+app.post("/listings/new" ,validateListing ,  WrapAsync(async (req,res) => {
     const newListing = new Listing(req.body.listing);
     await newListing.save();
     res.redirect("/listings");
-});
+}));
 
-app.delete("/listings/:id" , async(req,res) => {
+// Delete Route
+app.delete("/listings/:id" , WrapAsync(async(req,res) => {
     let {id} = req.params;
     await Listing.findByIdAndDelete(id);
     res.redirect("/listings");
+}));
+
+app.use((req, res,next ) => {
+    next(new ExpressError(404 ,"page not found"));  
+});
+
+app.use((err,req,res,next) => {
+    let {statusCode=500 , message="something went wrong"} = err;
+    res.status(statusCode).render("error.ejs" ,  {message , statusCode});
 });
 
 app.listen(3000 , () => {
